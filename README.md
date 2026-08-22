@@ -33,10 +33,28 @@
 ## 目录
 
 ```
-lib/index.js   插件入口(工具注册 + 环境检测 + exec runner)
-src/index.ts   TS 源(tsc → dist)
-test/          测试(占位)
+src/index.ts    TS 源(tsc → dist)
+dist/index.js   编译产物(main)
+test/           测试(node --test,17 个:环境检测 / fake-codex 全链路 / Hono)
 ```
+
+## 测试
+
+`npm test`(node --test,串行)覆盖:
+
+1. **工具注册**:codex_status / codex_exec 注册、Hono /health /status 端点
+2. **环境检测**:无 binary 给安装指引、无 key 给认证指引
+3. **exec 全链路**(fake codex 二进制,不碰真 CLI、不耗额度):spawn 参数、
+   stdin prompt 通道、--output-last-message 文件读回、model/reasoningEffort
+   透传、PROTECTED_ARGS 拒绝(--json/--sandbox/--model 等)、退出码回显、
+   stderr 回显、超时进程树 kill(taskkill /t)
+
+## 平台说明(Windows)
+
+npm 全局安装的 codex 是 `codex.cmd` shim:无 shell 的 spawn/execFileSync 对
+`.cmd` 直接 ENOENT/EINVAL,插件统一走 `shell: true`(仅 `--version` 探测与
+exec 调用,参数不经 shell 拼接);超时用 `taskkill /pid <pid> /t /f` 杀整棵
+进程树,避免孤儿 node 子进程持有管道导致 close 永不触发。
 
 ## Roadmap
 

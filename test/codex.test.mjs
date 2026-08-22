@@ -37,10 +37,16 @@ test('codex_exec without binary returns actionable guidance, not a throw', async
   const ctx = makeCtx()
   apply(ctx)
   const exec = ctx.tools.find((t) => t.name === 'codex_exec')
-  const out = await exec.execute({ prompt: 'test task' })
-  assert.ok(typeof out === 'string')
-  // either ran (has codex env) or told us what to install — never throws
-  assert.ok(out.length > 0)
+  // 确保无 key:无论机器是否装了 codex,都不真跑(有 bin 无 key 也走提示路径)
+  const savedKey = process.env.OPENAI_API_KEY
+  delete process.env.OPENAI_API_KEY
+  try {
+    const out = await exec.execute({ prompt: 'test task' })
+    assert.ok(typeof out === 'string')
+    assert.ok(out.length > 0)
+  } finally {
+    if (savedKey !== undefined) process.env.OPENAI_API_KEY = savedKey
+  }
 })
 
 test('codex_exec validates missing prompt', async () => {

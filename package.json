@@ -1,12 +1,13 @@
 {
   "name": "@snow-the/dsh-busyloop-codex",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "dsh-busyloop family — paradigm 1: OpenAI Codex CLI bridge for DSH (task executor, code review, security audit, AGENTS.md support).",
+  "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json --emitDeclarationOnly && esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --external:@deepseek-ai/* --log-level=warning",
-    "test": "node --test"
+    "test": "node --test --test-concurrency=1"
   },
   "keywords": [
     "dsh",

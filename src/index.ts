@@ -17,7 +17,7 @@
 import { Hono } from 'hono';
 import { defineTool } from '@deepseek-ai/dsh-tools';
 import { execFileSync } from 'node:child_process';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -25,6 +25,11 @@ import { join } from 'node:path';
 
 export const name = 'dsh-codex';
 export const inject = ['tools'];
+
+// Windows 上 npm 全局安装的 codex 是 codex.cmd shim:
+// 无 shell 的 spawn/execFileSync 对 .cmd 直接 ENOENT/EINVAL,必须 shell: true。
+const IS_WIN = process.platform === 'win32';
+const CODEX_BIN = IS_WIN ? 'codex.cmd' : 'codex';
 
 // ---------------------------------------------------------------------------
 // types
@@ -61,12 +66,13 @@ function detectEnvironment(): CodexEnv {
     configFile: null,
     notes: [],
   };
-  for (const bin of ['codex', 'codex.exe']) {
+  for (const bin of [CODEX_BIN, 'codex', 'codex.exe']) {
     try {
       const out = execFileSync(bin, ['--version'], {
         encoding: 'utf8',
         timeout: 10_000,
         stdio: ['ignore', 'pipe', 'pipe'],
+        shell: IS_WIN && bin.endsWith('.cmd'),
       });
       env.hasCodexBin = true;
       env.codexVersion = out.split('\n')[0]?.trim() ?? '';
@@ -99,7 +105,7 @@ const PROTECTED_ARGS = [
   '--model', '--model-provider', '--reasoning-effort',
 ];
 
-function validateExtraArgs(extraArgs: string[] | undefined): void {
+export function validateExtraArgs(extraArgs: string[] | undefined): void {
   const bad = (extraArgs ?? []).filter((a) => PROTECTED_ARGS.includes(a));
   if (bad.length > 0) {
     throw new Error(`refusing protected codex args: ${bad.join(', ')} (managed by dsh-codex)`);
@@ -130,10 +136,20 @@ export async function runCodexExec(opts: ExecOptions): Promise<string> {
   return new Promise<string>((resolve) => {
     let stderr = '';
     let timedOut = false;
-    const child = spawn('codex', args, { cwd: dir, stdio: ['pipe', 'ignore', 'pipe'] });
+    const child = spawn(CODEX_BIN, args, { cwd: dir, stdio: ['pipe', 'ignore', 'pipe'], shell: IS_WIN });
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill('SIGKILL');
+      if (IS_WIN) {
+        // shell:true 时 child 是 cmd.exe;kill 只杀它,node 子进程变孤儿并持有
+        // stderr 管道,close 永不触发。必须杀整棵进程树。
+        try {
+          spawnSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore' });
+        } catch {
+          /* taskkill unavailable; fall through */
+        }
+      } else {
+        child.kill('SIGKILL');
+      }
     }, opts.timeoutMs ?? 10 * 60 * 1000);
 
     child.stderr.on('data', (d: Buffer) => { stderr += String(d); });
