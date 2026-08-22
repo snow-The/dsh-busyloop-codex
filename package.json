@@ -1,7 +1,7 @@
 {
-  "name": "@snow-the/dsh-codex",
+  "name": "@snow-the/dsh-busyloop-codex",
   "version": "0.1.0",
-  "description": "OpenAI Codex as a DSH ecosystem plugin: task executor, code review, security audit, AGENTS.md support",
+  "description": "dsh-busyloop family — paradigm 1: OpenAI Codex CLI bridge for DSH (task executor, code review, security audit, AGENTS.md support).",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
