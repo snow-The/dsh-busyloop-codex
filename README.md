@@ -1,4 +1,9 @@
-# dsh-codex — Codex for DSH
+# dsh-busyloop-codex — Codex CLI bridge for DSH(busyloop 家族 · 范式①)
+
+> **改名历史**:本仓库原名 `dsh-codex`,2026-08-22 改名加入 busyloop 家族;
+> npm 包名 `@snow-the/dsh-busyloop-codex`(旧名 `@snow-the/dsh-codex@0.1.0` 保留不更新)。
+
+**家族架构**:`dsh-busyloop`(引擎)→ 范式① `dsh-busyloop-codex`(CLI 桥,本仓库)/ 范式② `dsh-busyloop-codexstyle`(自研,规划中)。
 
 把 OpenAI 开源的 Codex 系列接入 DSH(DeepSeek Harness)生态的插件。
 让 DSH agent 能调用本机 Codex CLI 执行任务(实现/修复/审查/安全审计)。
