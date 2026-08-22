@@ -1,0 +1,3 @@
+# dsh-codex — Codex for DSH
+# 注册到 bundle 后提供 codex_* 工具(环境检测 / 任务执行 / PR 审查 / 安全审计)
+# 占位 patch:核心注册在 lib/index.js 中完成

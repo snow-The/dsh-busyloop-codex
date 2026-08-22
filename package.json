@@ -1,0 +1,30 @@
+{
+  "name": "@snow-the/dsh-codex",
+  "version": "0.1.0",
+  "description": "OpenAI Codex as a DSH ecosystem plugin: task executor, code review, security audit, AGENTS.md support",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node test/codex.test.mjs"
+  },
+  "keywords": [
+    "dsh",
+    "plugin",
+    "codex",
+    "openai",
+    "agent"
+  ],
+  "license": "MIT",
+  "allowScripts": [
+    "hono",
+    "typescript"
+  ],
+  "dependencies": {
+    "hono": "^4.13.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "typescript": "^7.0.2"
+  }
+}
