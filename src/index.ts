@@ -20,7 +20,7 @@ import { execFileSync } from 'node:child_process';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 export const name = 'dsh-codex';
@@ -84,7 +84,7 @@ function detectEnvironment(): CodexEnv {
   if (!env.hasCodexBin) {
     env.notes.push('codex binary not found on PATH. Install with: npm install -g @openai/codex');
   }
-  const home = env.codexHome ?? process.env.USERPROFILE ?? process.env.HOME;
+  const home = env.codexHome ?? homedir();
   if (home) {
     const cfg = join(home, '.codex', 'config.toml');
     if (existsSync(cfg)) env.configFile = cfg;
