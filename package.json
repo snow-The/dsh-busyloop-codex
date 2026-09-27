@@ -12,7 +12,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json --emitDeclarationOnly && esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --external:@deepseek-ai/* --log-level=warning",
-    "test": "node -e \" if(process.env.CI && !process.env.OPENAI_API_KEY){console.log(' skip: codex tests need OPENAI_API_KEY');process.exit(0)}else{process.exit(1)} \" || node --test --test-concurrency=1"
+    "test": "node --test --test-concurrency=1"
   },
   "keywords": [
     "dsh",
@@ -28,12 +28,9 @@
     }
   },
   "allowScripts": [
-    "hono",
     "typescript"
   ],
-  "dependencies": {
-    "hono": "^4.13.3"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@types/node": "^26.2.0",
     "esbuild": "^0.28.2",

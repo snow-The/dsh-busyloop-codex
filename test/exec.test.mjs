@@ -5,6 +5,7 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, delimiter } from 'node:path'
@@ -183,14 +184,31 @@ test('runCodexExec: no binary on PATH returns install guidance', async () => {
   }
 })
 
-test('runCodexExec: no API key returns auth guidance', async () => {
-  const originalKey = process.env.OPENAI_API_KEY
+test('runCodexExec: no credential at all returns auth guidance naming all three routes', async () => {
+  // Deleting OPENAI_API_KEY is NOT enough to reach this branch any more, and that is the point of the
+  // fix: the plugin now asks whether ANY credential path is satisfied. On a machine whose config.toml
+  // configures a provider with a set env_key (which is the normal setup here), removing the API key
+  // changes nothing -- Codex can still authenticate. So the test sandboxes CODEX_HOME to an empty dir
+  // and clears the provider variable too, and asserts on the guidance rather than on one variable name.
+  const savedKey = process.env.OPENAI_API_KEY
+  const savedHome = process.env.CODEX_HOME
+  const emptyHome = mkdtempSync(join(tmpdir(), 'codex-noauth-'))
   delete process.env.OPENAI_API_KEY
+  process.env.CODEX_HOME = emptyHome
   try {
     const out = await runCodexExec({ prompt: 'p' })
-    assert.match(out, /OPENAI_API_KEY is not set/)
+    assert.match(out, /no usable credential/)
+    assert.match(out, /codex login/)
+    assert.match(out, /env_key/)
+    assert.match(out, /OPENAI_API_KEY/)
   } finally {
-    process.env.OPENAI_API_KEY = originalKey
+    // Restore the EXACT prior state: assigning undefined would store the literal string
+    // "undefined", which is truthy and would leak credentials into every later test.
+    if (savedKey === undefined) delete process.env.OPENAI_API_KEY
+    else process.env.OPENAI_API_KEY = savedKey
+    if (savedHome === undefined) delete process.env.CODEX_HOME
+    else process.env.CODEX_HOME = savedHome
+    rmSync(emptyHome, { recursive: true, force: true, maxRetries: 3 })
   }
 })
 
