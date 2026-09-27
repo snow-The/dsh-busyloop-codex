@@ -101,14 +101,25 @@ exec 调用,参数不经 shell 拼接);超时用 `taskkill /pid <pid> /t /f` 杀
 - [ ] 代码审查工具(codex_review,基于 plugin-cc 的 review 命令)
 - [ ] 安全审计工具(codex_security,基于 codex-security 方法论)
 
-## 构建说明(本机现实)
+## 构建说明
 
-`npm run build` 需要 `typescript` + `esbuild` + `@types/node`。本仓库所在机器的
-`node_modules` 曾被部分删除(`.pnpm` 里 `@typescript+typescript-win32-x64@7.0.2` 与
-`@esbuild+win32-x64@0.28.2` 的 `lib/` 缺失),所以:
+```bash
+pnpm install     # 首次或 node_modules 异常时
+npm run build    # tsc 类型检查 + 声明 → esbuild 打包
+npm test         # node --test，串行
+```
 
-- `tsc` 会报 `Cannot find type definition file for 'node'`(坏 junction),**类型检查当前不可用**
-- `esbuild` 单独可用;`dist/index.js` 是用**借用** `dsh-eigenflux/node_modules` 里健康副本的
-  工具链构建的(见 `_recover/build-frozen-codex.mjs`,构建前会自动备份 dist)
+### 曾经的坑:改名打断 node_modules 里的全部 junction(已修)
 
-要恢复完整构建链:在该插件目录重跑一次 `pnpm install`(会重新落成那些平台包)。
+本仓库目录 2026-08-22 由 `dsh-codex` 改名为 `dsh-codex.frozen`,但 `node_modules` 里
+**10 个 pnpm junction 仍指向已不存在的 `plugins\dsh-codex\...`**,全部断链,于是:
+
+- `tsc` 报 `Unable to resolve @typescript/typescript-win32-x64`(它用
+  `import.meta.resolve` 找平台包,junction 断 = `MODULE_NOT_FOUND`)
+- `esbuild` 报 `Could not resolve "hono"`(同理)
+- **而 `pnpm install` 修不好它** —— junction 本身存在,pnpm 认为无需重建
+
+修法是**删掉 `node_modules` 再 `pnpm install`**(强制按当前路径重建链接)。
+改名/移动任何插件目录后都要注意这一点:软链/junction 不会跟着改。
+
+`.npmrc` 的 `allow-scripts` 需同时允许 `typescript` 与 `esbuild`(后者安装时要落平台二进制)。

@@ -267,9 +267,21 @@ test('codex_status reports the credential path as a sentence, not a bare boolean
   assert.match(text, /one of three possible paths/)
 })
 
-test('codex_exec validates a missing prompt before touching the environment', async () => {
+test('codex_exec rejects a call with no prompt, before touching the environment', async () => {
   const ctx = makeCtx()
   apply(ctx)
   const exec = ctx.tools.find((t) => t.name === 'codex_exec')
-  await assert.rejects(() => exec.execute({}), /prompt is required/)
+  // Two layers can raise this and BOTH are correct: the host validates the declared `parameters`
+  // schema first (ToolArgsError: missing required property "prompt"), and the plugin's own guard is
+  // a backstop. Which one wins depends on whether the real @deepseek-ai/dsh-tools is installed, so
+  // the assertion requires a rejection that NAMES the prompt rather than one specific wording --
+  // pinning the plugin's phrasing would break the moment the host got stricter, which is an
+  // improvement, not a regression.
+  await assert.rejects(
+    () => exec.execute({}),
+    (err) => {
+      assert.match(String(err?.message ?? err), /prompt/i)
+      return true
+    },
+  )
 })
