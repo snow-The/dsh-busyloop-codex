@@ -342,17 +342,33 @@ export async function runCodexExec(opts: ExecOptions): Promise<string> {
   await writeFile(join(tmp, 'prompt.txt'), opts.prompt, 'utf8');
   const timeoutMs = opts.timeoutMs ?? 10 * 60 * 1000;
 
+  const notes: string[] = [];
+  if (caps.note) notes.push(caps.note);
+
   const useFileChannel = assumeFull || caps.outputLastMessage;
   const full: string[] = ['exec'];
   if (assumeFull || caps.skipGitRepoCheck) full.push('--skip-git-repo-check');
   full.push('--cd', dir);
   if (useFileChannel) full.push('--output-last-message', outFile);
+  else {
+    // 不静默降级：告诉调用方消息是从 stdout 拿的，为什么。
+    notes.push('this Codex version has no --output-last-message flag; the final message was read from stdout instead.');
+  }
   if (opts.model) full.push('--model', opts.model);
-  if (opts.reasoningEffort && (assumeFull || caps.reasoningEffort)) full.push('--reasoning-effort', opts.reasoningEffort);
+  if (opts.reasoningEffort) {
+    if (assumeFull || caps.reasoningEffort) full.push('--reasoning-effort', opts.reasoningEffort);
+    else {
+      // 2026-10-19 实测：codex-cli 0.149.0 的 `exec --help` 里【没有】--reasoning-effort。
+      // 静默丢掉用户的意图比报错更糟 —— 所以显式记一条。
+      // 没有把它映射到 `-c model_reasoning_effort=…`，因为当前环境缺认证，
+      // 无法实测该配置键是否被这个版本接受；不拿假设当修复。
+      notes.push(
+        `this Codex version (${env.codexVersion ?? 'unknown'}) has no --reasoning-effort flag; `
+        + `the requested effort "${opts.reasoningEffort}" was dropped. Set it in codex config instead.`,
+      );
+    }
+  }
   full.push(...(opts.extraArgs ?? []));
-
-  const notes: string[] = [];
-  if (caps.note) notes.push(caps.note);
 
   let result = await runExecOnce(full, dir, opts.prompt, timeoutMs);
   let usedFile = useFileChannel;

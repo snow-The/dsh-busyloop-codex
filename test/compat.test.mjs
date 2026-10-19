@@ -132,11 +132,30 @@ test('能力缺失时不硬用该 flag：改走 stdout 通道', async () => {
     const out = await runCodexExec({ prompt: 'hello', cwd: fakeDir })
     assert.match(out, /exit code: 0/)
     assert.match(out, /message from stdout/, '应当回退到 stdout 里的消息')
+    assert.match(out, /read from stdout/, '降级必须被写出来，不能静默')
 
     const calls = await invocations()
     const execCall = calls.filter((a) => a[0] === 'exec' && !a.includes('--help')).pop()
     assert.ok(execCall, '应当有一次真正的 exec 调用')
     assert.ok(!execCall.includes('--output-last-message'), '不支持的 flag 不能出现')
+  } finally { await teardown() }
+})
+
+test('该版本没有 --reasoning-effort → 显式告知被丢弃，不静默', async () => {
+  await setup()
+  try {
+    // no-last-message 模式的 help 里也没有 --reasoning-effort
+    process.env.FAKE_HELP_MODE = 'no-last-message'
+    probeExecCapabilities(true)
+
+    const out = await runCodexExec({ prompt: 'hello', cwd: fakeDir, reasoningEffort: 'high' })
+    assert.match(out, /has no --reasoning-effort flag/, '必须说明这个版本没有该 flag')
+    assert.match(out, /"high" was dropped/, '必须说明用户要的 effort 被丢弃了')
+    assert.doesNotMatch(out, /error/i, '这是降级提示，不是报错')
+
+    const execCalls = (await invocations()).filter((a) => a[0] === 'exec' && !a.includes('--help'))
+    assert.ok(execCalls.length >= 1)
+    assert.ok(!execCalls[0].includes('--reasoning-effort'), '不支持的 flag 不能被传下去')
   } finally { await teardown() }
 })
 
