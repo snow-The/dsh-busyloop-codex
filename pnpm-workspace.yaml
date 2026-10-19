@@ -1,0 +1,12 @@
+packages:
+  - .
+
+# 插件是【库】，不是应用：peerDependencies 里的 @deepseek-ai/dsh* 由宿主在运行时提供，
+# 不能在这里被自动安装（否则 pnpm-lock.yaml 会带上整个 DSH 宿主树，且任何 peer 变更
+# 都会让 frozen 安装失败 → ERR_PNPM_OUTDATED_LOCKFILE → 整个 profile 装不上）。
+autoInstallPeers: false
+
+# 但本仓库的测试要 import dist/index.js，而它依赖 @deepseek-ai/dsh-tools，
+# dsh-tools 的运行时依赖（dsh-scope 等）是它的 peer。摊平链接后，
+# devDependencies 里的 @deepseek-ai/dsh 才能供到它们。
+nodeLinker: hoisted

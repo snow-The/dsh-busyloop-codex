@@ -189,9 +189,29 @@ export function detectEnvironment(): CodexEnv {
 }
 
 // ---------------------------------------------------------------------------
-// codex exec runner (absorbed from codex-action: runCodexExec)
+// codex exec runner
+//
+// 反向兼容的写法对照官方 openai/codex-plugin-cc（2026-10-19 重读其源码）：
+//
+//   (a) 【窄口径抑制】只在错误确实是"该特性不存在"时降级，认证/网络错误必须照抛。
+//       官方 codex.mjs startThread():
+//         // Only suppress "unknown variant/method" errors from older CLI versions
+//         // that don't support thread/name/set. Rethrow auth, network, or server errors.
+//         if (!msg.includes("unknown variant") && !msg.includes("unknown method")) throw err;
+//
+//   (b) 【必需特性缺失给可执行指引】官方 codex.mjs 在 rpcCode === -32601 时不静默：
+//         "This Codex version does not support Claude session transfer.
+//          Update Codex with `npm install -g @openai/codex@latest`, then retry."
+//
+//   本文件此前是【版本盲】的：硬用 --output-last-message，一旦本地 codex 不支持该 flag，
+//   就把裸 stderr 丢给模型，模型只能看到 "exit code: 2"。现在改为先探测 `codex exec --help`
+//   的 flag 面，再按能力构建参数；探测失败时保守地按完整面走（保持旧行为），
+//   失败且错误确实是"不认识的参数"时降级重试一次，并在输出里写明降级了什么。
 // ---------------------------------------------------------------------------
 
+// 受保护参数：由本插件管理，不接受调用方通过 extraArgs 覆写。
+// 注意这【不是】能力判据 —— 一个版本支持哪些 flag 由 probeExecCapabilities() 决定；
+// 这份列表只回答"哪些参数不许用户自己传"。
 const PROTECTED_ARGS = [
   '--cd', '--sandbox', '--permission-prompt', '--config', '--profile',
   '--json', '--output-last-message', '--output-json', '--full-trace',
@@ -203,6 +223,97 @@ export function validateExtraArgs(extraArgs: string[] | undefined): void {
   if (bad.length > 0) {
     throw new Error(`refusing protected codex args: ${bad.join(', ')} (managed by dsh-codex)`);
   }
+}
+
+export interface ExecCapabilities {
+  probed: boolean;
+  outputLastMessage: boolean;
+  json: boolean;
+  reasoningEffort: boolean;
+  skipGitRepoCheck: boolean;
+  note: string | null;
+}
+
+let execCaps: ExecCapabilities | null = null;
+
+/** 探测 `codex exec --help` 暴露的 flag 面。结果进程内缓存。 */
+export function probeExecCapabilities(force = false): ExecCapabilities {
+  if (execCaps && !force) return execCaps;
+  const caps: ExecCapabilities = {
+    probed: false, outputLastMessage: false, json: false,
+    reasoningEffort: false, skipGitRepoCheck: false, note: null,
+  };
+  try {
+    const help = execFileSync(CODEX_BIN, ['exec', '--help'], {
+      encoding: 'utf8', shell: IS_WIN, timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const flags = new Set<string>();
+    for (const m of help.matchAll(/(?:^|[\s,])(--[a-z0-9][a-z0-9-]*)/g)) flags.add(m[1]);
+    caps.outputLastMessage = flags.has('--output-last-message');
+    caps.json = flags.has('--json');
+    caps.reasoningEffort = flags.has('--reasoning-effort');
+    caps.skipGitRepoCheck = flags.has('--skip-git-repo-check');
+    caps.probed = flags.size > 0;
+    if (!caps.probed) caps.note = 'could not parse `codex exec --help`; assuming the full flag set';
+  } catch (e) {
+    caps.note = `could not probe \`codex exec --help\` (${(e as Error).message.slice(0, 120)}); assuming the full flag set`;
+  }
+  execCaps = caps;
+  return caps;
+}
+
+/**
+ * 窄口径判定：这段 stderr 是否在说"我不认识这个参数"。
+ *
+ * 只认这一种。认证失败、网络错误、超时、配置错误一律【不】算 —— 那是官方
+ * "Rethrow auth, network, or server errors" 的同一原则：降级只能针对版本差异。
+ */
+export function isUnsupportedFlagError(text: string): boolean {
+  return /(unknown (option|argument|flag)|unexpected argument|unrecognized argument|invalid option)/i.test(text);
+}
+
+interface ExecRun {
+  code: number | null;
+  message: string;
+  stderr: string;
+  timedOut: boolean;
+}
+
+function runExecOnce(args: string[], dir: string, prompt: string, timeoutMs: number): Promise<ExecRun> {
+  return new Promise<ExecRun>((resolve) => {
+    let stderr = '';
+    let stdout = '';
+    let timedOut = false;
+    const child = spawn(CODEX_BIN, args, { cwd: dir, stdio: ['pipe', 'pipe', 'pipe'], shell: IS_WIN });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      if (IS_WIN) {
+        // shell:true 时 child 是 cmd.exe;kill 只杀它,node 子进程变孤儿并持有
+        // stderr 管道,close 永不触发。必须杀整棵进程树。
+        try {
+          spawnSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore' });
+        } catch {
+          /* taskkill unavailable; fall through */
+        }
+      } else {
+        child.kill('SIGKILL');
+      }
+    }, timeoutMs);
+
+    child.stdout.on('data', (d: Buffer) => { stdout += String(d); });
+    child.stderr.on('data', (d: Buffer) => { stderr += String(d); });
+    child.on('error', (err: Error) => {
+      clearTimeout(timer);
+      resolve({ code: null, message: '', stderr: `failed to spawn codex: ${err.message}`, timedOut });
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      resolve({ code, message: stdout, stderr, timedOut });
+    });
+
+    child.stdin.write(prompt);
+    child.stdin.end();
+  });
 }
 
 export async function runCodexExec(opts: ExecOptions): Promise<string> {
@@ -223,55 +334,56 @@ export async function runCodexExec(opts: ExecOptions): Promise<string> {
 
   validateExtraArgs(opts.extraArgs);
 
+  const caps = probeExecCapabilities();
+  const assumeFull = !caps.probed;              // 探测失败时保守地按完整面走（保持旧行为）
   const dir = opts.cwd ?? process.cwd();
   const tmp = await mkdtemp(join(tmpdir(), 'dsh-codex-'));
   const outFile = join(tmp, 'last-message.txt');
   await writeFile(join(tmp, 'prompt.txt'), opts.prompt, 'utf8');
+  const timeoutMs = opts.timeoutMs ?? 10 * 60 * 1000;
 
-  const args = ['exec', '--skip-git-repo-check', '--cd', dir, '--output-last-message', outFile];
-  if (opts.model) args.push('--model', opts.model);
-  if (opts.reasoningEffort) args.push('--reasoning-effort', opts.reasoningEffort);
-  args.push(...(opts.extraArgs ?? []));
+  const useFileChannel = assumeFull || caps.outputLastMessage;
+  const full: string[] = ['exec'];
+  if (assumeFull || caps.skipGitRepoCheck) full.push('--skip-git-repo-check');
+  full.push('--cd', dir);
+  if (useFileChannel) full.push('--output-last-message', outFile);
+  if (opts.model) full.push('--model', opts.model);
+  if (opts.reasoningEffort && (assumeFull || caps.reasoningEffort)) full.push('--reasoning-effort', opts.reasoningEffort);
+  full.push(...(opts.extraArgs ?? []));
 
-  return new Promise<string>((resolve) => {
-    let stderr = '';
-    let timedOut = false;
-    const child = spawn(CODEX_BIN, args, { cwd: dir, stdio: ['pipe', 'ignore', 'pipe'], shell: IS_WIN });
-    const timer = setTimeout(() => {
-      timedOut = true;
-      if (IS_WIN) {
-        // shell:true 时 child 是 cmd.exe;kill 只杀它,node 子进程变孤儿并持有
-        // stderr 管道,close 永不触发。必须杀整棵进程树。
-        try {
-          spawnSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore' });
-        } catch {
-          /* taskkill unavailable; fall through */
-        }
-      } else {
-        child.kill('SIGKILL');
-      }
-    }, opts.timeoutMs ?? 10 * 60 * 1000);
+  const notes: string[] = [];
+  if (caps.note) notes.push(caps.note);
 
-    child.stderr.on('data', (d: Buffer) => { stderr += String(d); });
-    child.on('error', (err: Error) => {
-      clearTimeout(timer);
-      resolve(`failed to spawn codex: ${err.message}`);
-    });
-    child.on('close', async (code) => {
-      clearTimeout(timer);
-      let last = '';
-      try { last = await readFile(outFile, 'utf8'); } catch { /* no output file */ }
-      await rm(tmp, { recursive: true, force: true }).catch(() => {});
-      const lines: string[] = [];
-      lines.push(`exit code: ${code}${timedOut ? ' (timed out, killed)' : ''}`);
-      if (last.trim()) lines.push('', last.trim());
-      if (stderr.trim() && !last.trim()) lines.push('', '[stderr]', stderr.trim().slice(-2000));
-      resolve(lines.join('\n'));
-    });
+  let result = await runExecOnce(full, dir, opts.prompt, timeoutMs);
+  let usedFile = useFileChannel;
 
-    child.stdin.write(opts.prompt);
-    child.stdin.end();
-  });
+  // 降级：仅当失败原因确实是"不认识的参数"，且我们确实多带了可选 flag。
+  const optionalCount = full.length - (1 + (full.includes('--cd') ? 2 : 0));
+  if (result.code !== 0 && !result.timedOut && optionalCount > 0 && isUnsupportedFlagError(result.stderr)) {
+    const minimal: string[] = ['exec', '--cd', dir];
+    if (opts.model) minimal.push('--model', opts.model);
+    notes.push(
+      'this Codex version rejected at least one flag we normally pass '
+      + `(stderr said: ${result.stderr.trim().split('\n')[0].slice(0, 160)}). `
+      + 'Retried with the minimal flag set. Update with `npm install -g @openai/codex@latest` to restore full behaviour.',
+    );
+    result = await runExecOnce(minimal, dir, opts.prompt, timeoutMs);
+    usedFile = false;
+  }
+
+  let last = '';
+  if (usedFile) {
+    try { last = await readFile(outFile, 'utf8'); } catch { /* no output file */ }
+  }
+  await rm(tmp, { recursive: true, force: true }).catch(() => {});
+
+  const lines: string[] = [];
+  lines.push(`exit code: ${result.code}${result.timedOut ? ' (timed out, killed)' : ''}`);
+  if (notes.length) lines.push('', '[compat]', ...notes);
+  if (last.trim()) lines.push('', last.trim());
+  else if (result.message.trim()) lines.push('', result.message.trim().slice(-4000));
+  else if (result.stderr.trim()) lines.push('', '[stderr]', result.stderr.trim().slice(-2000));
+  return lines.join('\n');
 }
 
 // ---------------------------------------------------------------------------
