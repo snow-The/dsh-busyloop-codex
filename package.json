@@ -29,13 +29,18 @@
     },
     "compatibility": {
       "dshReleases": [
-        "0.2.0-rc.1",
-        "0.2.0-rc.2",
-        "0.2.1-rc.1",
-        "0.2.1-rc.2"
+        "0.2.1-rc.5"
       ],
-      "verifiedAgainst": "0.2.1-rc.2"
-    }
+      "verifiedAgainst": "0.2.1-rc.5"
+    },
+    "level": "optional",
+    "assumes": [
+      {
+        "kind": "command",
+        "value": "codex",
+        "note": "Codex CLI 橋接；缺了這個插件沒有意義"
+      }
+    ]
   },
   "allowScripts": [
     "typescript"
@@ -59,7 +64,10 @@
     "typescript": "^7.0.2"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh": ">=0.2.0-rc.1",
-    "@deepseek-ai/dsh-tools": ">=0.2.0-rc.1"
+    "@deepseek-ai/dsh": ">=0.2.1-rc.5",
+    "@deepseek-ai/dsh-tools": ">=0.2.1-rc.5"
+  },
+  "engines": {
+    "dsh": ">=0.2.1-rc.5"
   }
 }
